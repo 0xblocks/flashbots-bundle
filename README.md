@@ -1,6 +1,6 @@
 # flashbots-bundle
 
-This is a library for simulating and sending bundles to the [Flashbots](https://flashbots.net/) mev-geth relay.
+This is a go library for simulating and sending bundles to the [Flashbots](https://flashbots.net/) mev-geth relay.
 
 ## Usage
 Simulate Bundle
