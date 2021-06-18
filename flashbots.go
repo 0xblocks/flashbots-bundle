@@ -257,7 +257,7 @@ func (provider *Provider) sendRequest(relay string, method string, params []inte
 		return nil, err
 	}
 
-	fbHeader, _ := provider.flashbotHeader(payload)
+	fbHeader, err := provider.flashbotHeader(payload)
 	if err != nil {
 		return nil, err
 	}
