@@ -220,7 +220,7 @@ func (provider *FlashbotsProvider) CallBundleLocal(transactions []string, blockN
 
 func (provider *FlashbotsProvider) Simulate(transactions []string, blockNumber *big.Int, minTimestamp int64) (*FlashbotsCallBundleResponse, error) {
 
-	if provider.RelayURL[0:16] == "http://localhost" {
+	if provider.RelayURL[0:16] == "http://localhost" || provider.RelayURL[0:16] == "http://127.0.0.1" {
 		return provider.CallBundleLocal(transactions, blockNumber, minTimestamp)
 	}
 
