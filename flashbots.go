@@ -17,29 +17,31 @@ import (
 )
 
 const (
-	DefaultRelayURL  = "https://relay.flashbots.net"
-	TestRelayURL     = "https://relay-goerli.flashbots.net"
-	FlashbotXHeader  = "X-Flashbots-Signature"
+	DefaultRelayURL = "https://relay.flashbots.net"
+	TestRelayURL    = "https://relay-goerli.flashbots.net"
+
 	MethodUserStats  = "flashbots_getUserStats"
 	MethodSendBundle = "eth_sendBundle"
 	MethodCallBundle = "eth_callBundle"
-	Json             = "application/json"
-	Post             = "POST"
+
+	FlashbotXHeader = "X-Flashbots-Signature"
+	Json            = "application/json"
+	Post            = "POST"
 )
 
-type FlashbotsProvider struct {
+type Provider struct {
 	RelayURL   string
 	SigningKey *ecdsa.PrivateKey
 	WalletKey  *ecdsa.PrivateKey
 }
 
-type FlashbotsOptions struct {
+type Options struct {
 	MinTimestamp      int64
 	MaxTimestamp      int64
 	RevertingTxHashes []string
 }
 
-type FlashbotsSendBundleParams struct {
+type SendBundleParams struct {
 	Transactions      []string `json:"txs"`
 	BlockNumber       string   `json:"blockNumber"`
 	MinTimestamp      int64    `json:"minTimestamp,omitempty"`
@@ -47,26 +49,30 @@ type FlashbotsSendBundleParams struct {
 	RevertingTxHashes []string `json:"revertingTxHashes,omitempty"`
 }
 
-type FlashbotsCallBundleParams struct {
+type CallBundleParams struct {
 	Transactions     []string `json:"txs"`
 	BlockNumber      string   `json:"blockNumber"`
 	StateBlockNumber string   `json:"stateBlockNumber"`
 	Timestamp        int64    `json:"timestamp,omitempty"`
 }
 
-type FlashbotsSendBundleResponse struct {
+type SendBundleResponse struct {
 	ID      uint          `json:"id"`
 	Version string        `json:"jsonrpc"`
 	Result  *bundleResult `json:"result"`
 	Raw     string
 }
 
-type FlashbotsCallBundleResponse struct {
+type CallBundleResponse struct {
 	ID      uint         `json:"id"`
 	Version string       `json:"jsonrpc"`
 	Result  *callResult  `json:"result"`
 	Error   *errorResult `json:"error"`
 	Raw     string
+}
+
+type ErrorResponse struct {
+	Result map[string]string `json:"error"`
 }
 
 type errorResult struct {
@@ -102,70 +108,40 @@ type callResult struct {
 	TotalGasUsed      uint64     `json:"totalGasUsed"`
 }
 
-type FlashbotsErrorResponse struct {
-	Result map[string]string `json:"error"`
-}
-
-func NewFlashbotsProvider(signingKey *ecdsa.PrivateKey, walletKey *ecdsa.PrivateKey, relayURL string) *FlashbotsProvider {
+func NewProvider(signingKey *ecdsa.PrivateKey, walletKey *ecdsa.PrivateKey, relayURL string) *Provider {
 	if relayURL == "" {
 		relayURL = DefaultRelayURL
 	}
-	return &FlashbotsProvider{
+	return &Provider{
 		RelayURL:   relayURL,
 		SigningKey: signingKey,
 		WalletKey:  walletKey,
 	}
 }
 
-func NewFlashbotsSendBundleParams(txs []string, blockNumber uint64, opts *FlashbotsOptions) *FlashbotsSendBundleParams {
-	params := FlashbotsSendBundleParams{
-		Transactions: txs,
-		BlockNumber:  "0x0",
+func (provider *Provider) SendBundle(transactions []string, blockNumber *big.Int, opts *Options) (*SendBundleResponse, error) {
+
+	params := SendBundleParams{
+		Transactions: transactions,
+		BlockNumber:  fmt.Sprintf("0x%x", blockNumber),
 	}
 
-	if blockNumber > 0 {
-		params.BlockNumber = fmt.Sprintf("0x%x", blockNumber)
-	}
-	if opts.MinTimestamp > 0 {
+	if opts != nil && opts.MinTimestamp > 0 {
 		params.MinTimestamp = opts.MinTimestamp
 	}
-	if opts.MaxTimestamp > 0 {
+	if opts != nil && opts.MaxTimestamp > 0 {
 		params.MaxTimestamp = opts.MaxTimestamp
 	}
-	if opts.RevertingTxHashes != nil {
+	if opts != nil && opts.RevertingTxHashes != nil {
 		params.RevertingTxHashes = opts.RevertingTxHashes
 	}
 
-	return &params
-}
-
-func NewFlashbotsCallBundleParams(txs []string, blockNumber uint64, timestamp int64) *FlashbotsCallBundleParams {
-	params := FlashbotsCallBundleParams{
-		Transactions:     txs,
-		BlockNumber:      fmt.Sprintf("0x%x", blockNumber),
-		StateBlockNumber: "latest",
-	}
-
-	if timestamp > 0 {
-		params.Timestamp = timestamp
-	}
-
-	return &params
-}
-
-func (provider *FlashbotsProvider) SendBundle(transactions []string, blockNumber *big.Int, opts *FlashbotsOptions) (*FlashbotsSendBundleResponse, error) {
-
-	params := []interface{}{
-		NewFlashbotsSendBundleParams(transactions, blockNumber.Uint64(), opts),
-	}
-
-	res, err := provider.sendRequest(provider.RelayURL, MethodSendBundle, params)
+	res, err := provider.sendRequest(provider.RelayURL, MethodSendBundle, []interface{}{params})
 	if err != nil {
 		return nil, err
 	}
 
-	response := FlashbotsSendBundleResponse{}
-	response.Raw = string(res)
+	response := SendBundleResponse{Raw: string(res)}
 	err = json.Unmarshal(res, &response)
 	if err != nil {
 		return nil, err
@@ -174,19 +150,24 @@ func (provider *FlashbotsProvider) SendBundle(transactions []string, blockNumber
 	return &response, nil
 }
 
-func (provider *FlashbotsProvider) CallBundle(transactions []string, blockNumber *big.Int, minTimestamp int64) (*FlashbotsCallBundleResponse, error) {
+func (provider *Provider) CallBundle(transactions []string, blockNumber *big.Int, stateBlockNumber string, minTimestamp int64) (*CallBundleResponse, error) {
 
-	params := []interface{}{
-		NewFlashbotsCallBundleParams(transactions, blockNumber.Uint64(), minTimestamp),
+	params := CallBundleParams{
+		Transactions:     transactions,
+		BlockNumber:      fmt.Sprintf("0x%x", blockNumber.Uint64()),
+		StateBlockNumber: stateBlockNumber,
 	}
 
-	res, err := provider.sendRequest(provider.RelayURL, MethodCallBundle, params)
+	if minTimestamp > 0 {
+		params.Timestamp = minTimestamp
+	}
+
+	res, err := provider.sendRequest(provider.RelayURL, MethodCallBundle, []interface{}{params})
 	if err != nil {
 		return nil, err
 	}
 
-	response := FlashbotsCallBundleResponse{}
-	response.Raw = string(res)
+	response := CallBundleResponse{Raw: string(res)}
 	err = json.Unmarshal(res, &response)
 	if err != nil {
 		return nil, err
@@ -195,12 +176,12 @@ func (provider *FlashbotsProvider) CallBundle(transactions []string, blockNumber
 	return &response, nil
 }
 
-// Similar to normal CallBundle, but params are formatted differently
-func (provider *FlashbotsProvider) CallBundleLocal(transactions []string, blockNumber *big.Int, minTimestamp int64) (*FlashbotsCallBundleResponse, error) {
+// Similar to normal CallBundle, but params are formatted differently for passing to the mev-geth RPC endpoint directly
+func (provider *Provider) CallBundleLocal(transactions []string, blockNumber *big.Int, stateBlockNumber string, minTimestamp int64) (*CallBundleResponse, error) {
 	params := []interface{}{
 		transactions,
 		fmt.Sprintf("0x%x", blockNumber.Uint64()),
-		"latest",
+		stateBlockNumber,
 	}
 
 	res, err := provider.sendRequest(provider.RelayURL, MethodCallBundle, params)
@@ -208,8 +189,7 @@ func (provider *FlashbotsProvider) CallBundleLocal(transactions []string, blockN
 		return nil, err
 	}
 
-	response := FlashbotsCallBundleResponse{}
-	response.Raw = string(res)
+	response := CallBundleResponse{Raw: string(res)}
 	err = json.Unmarshal(res, &response)
 	if err != nil {
 		return nil, err
@@ -218,16 +198,46 @@ func (provider *FlashbotsProvider) CallBundleLocal(transactions []string, blockN
 	return &response, nil
 }
 
-func (provider *FlashbotsProvider) Simulate(transactions []string, blockNumber *big.Int, minTimestamp int64) (*FlashbotsCallBundleResponse, error) {
+func (provider *Provider) Simulate(transactions []string, blockNumber *big.Int, stateBlockNumber string, minTimestamp int64) (*CallBundleResponse, error) {
 
 	if provider.RelayURL[0:16] == "http://localhost" || provider.RelayURL[0:16] == "http://127.0.0.1" {
-		return provider.CallBundleLocal(transactions, blockNumber, minTimestamp)
+		return provider.CallBundleLocal(transactions, blockNumber, stateBlockNumber, minTimestamp)
 	}
 
-	return provider.CallBundle(transactions, blockNumber, minTimestamp)
+	return provider.CallBundle(transactions, blockNumber, stateBlockNumber, minTimestamp)
 }
 
-func (provider *FlashbotsProvider) sendRequest(relay string, method string, params []interface{}) ([]byte, error) {
+func (r *CallBundleResponse) HasError() error {
+	if r.Error != nil {
+		return errors.New(fmt.Sprintf("Error from simulate: %s\n", r.Error.Message))
+	}
+
+	if r.Result == nil || len(r.Result.Results) == 0 {
+		return errors.New(fmt.Sprintf("Invalid response from simulate: %s\n", r.Raw))
+	}
+
+	for _, result := range r.Result.Results {
+		if result.Error != "" {
+			return errors.New(fmt.Sprintf("Error from simulate [%s]: %s\n", result.TxHash, result.Error))
+		}
+	}
+
+	return nil
+}
+
+func (r *CallBundleResponse) EffectiveGasPrice() (*big.Int, error) {
+
+	gu := new(big.Int).SetUint64(r.Result.TotalGasUsed)
+	gp, ok := new(big.Int).SetString(r.Result.CoinbaseDiff, 10)
+	if !ok {
+		return nil, errors.New("Invalid value returned for CoinbaseDiff")
+	}
+
+	wei := new(big.Int).Div(gp, gu)
+	return wei, nil
+}
+
+func (provider *Provider) sendRequest(relay string, method string, params []interface{}) ([]byte, error) {
 	mevHTTPClient := &http.Client{
 		Timeout: time.Second * 5,
 	}
@@ -238,6 +248,9 @@ func (provider *FlashbotsProvider) sendRequest(relay string, method string, para
 		"method":  method,
 		"params":  params,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequest(Post, relay, bytes.NewBuffer(payload))
 	if err != nil {
@@ -261,7 +274,7 @@ func (provider *FlashbotsProvider) sendRequest(relay string, method string, para
 	return ioutil.ReadAll(resp.Body)
 }
 
-func (provider *FlashbotsProvider) flashbotHeader(payload []byte) (string, error) {
+func (provider *Provider) flashbotHeader(payload []byte) (string, error) {
 
 	hashedPayload := crypto.Keccak256Hash(payload).Hex()
 	signature, err := crypto.Sign(
@@ -274,43 +287,4 @@ func (provider *FlashbotsProvider) flashbotHeader(payload []byte) (string, error
 
 	return crypto.PubkeyToAddress(provider.SigningKey.PublicKey).Hex() +
 		":" + hexutil.Encode(signature), nil
-}
-
-func (r *FlashbotsCallBundleResponse) HasError() error {
-	if r.Error != nil {
-		return errors.New(fmt.Sprintf("Error from simulate: %s\n", r.Error.Message))
-	}
-
-	if r.Result == nil || len(r.Result.Results) == 0 {
-		return errors.New(fmt.Sprintf("Invalid response from simulate: %s\n", r.Raw))
-	}
-
-	for _, result := range r.Result.Results {
-		if result.Error != "" {
-			return errors.New(fmt.Sprintf("Error from simulate [%s]: %s\n", result.TxHash, result.Error))
-		}
-	}
-
-	return nil
-}
-
-func (r *FlashbotsCallBundleResponse) EffectiveGasPrice() (*big.Int, error) {
-
-	gu := new(big.Int).SetUint64(r.Result.TotalGasUsed)
-	gp, ok := new(big.Int).SetString(r.Result.CoinbaseDiff, 10)
-	if !ok {
-		return nil, errors.New("Invalid value returned for CoinbaseDiff")
-	}
-
-	wei := new(big.Int).Div(gp, gu)
-	return wei, nil
-}
-
-func buildPayload(method string, params interface{}) ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  method,
-		"params":  []interface{}{params},
-	})
 }
