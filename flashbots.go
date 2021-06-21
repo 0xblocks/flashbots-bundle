@@ -176,33 +176,7 @@ func (provider *Provider) CallBundle(transactions []string, blockNumber *big.Int
 	return &response, nil
 }
 
-// Similar to normal CallBundle, but params are formatted differently for passing to the mev-geth RPC endpoint directly
-func (provider *Provider) CallBundleLocal(transactions []string, blockNumber *big.Int, stateBlockNumber string, minTimestamp int64) (*CallBundleResponse, error) {
-	params := []interface{}{
-		transactions,
-		fmt.Sprintf("0x%x", blockNumber.Uint64()),
-		stateBlockNumber,
-	}
-
-	res, err := provider.sendRequest(provider.RelayURL, MethodCallBundle, params)
-	if err != nil {
-		return nil, err
-	}
-
-	response := CallBundleResponse{Raw: string(res)}
-	err = json.Unmarshal(res, &response)
-	if err != nil {
-		return nil, err
-	}
-
-	return &response, nil
-}
-
 func (provider *Provider) Simulate(transactions []string, blockNumber *big.Int, stateBlockNumber string, minTimestamp int64) (*CallBundleResponse, error) {
-
-	if provider.RelayURL[0:16] == "http://localhost" || provider.RelayURL[0:16] == "http://127.0.0.1" {
-		return provider.CallBundleLocal(transactions, blockNumber, stateBlockNumber, minTimestamp)
-	}
 
 	return provider.CallBundle(transactions, blockNumber, stateBlockNumber, minTimestamp)
 }
