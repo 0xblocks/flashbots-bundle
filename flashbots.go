@@ -57,22 +57,28 @@ type CallBundleParams struct {
 }
 
 type SendBundleResponse struct {
-	ID      uint          `json:"id"`
-	Version string        `json:"jsonrpc"`
-	Result  *bundleResult `json:"result"`
-	Raw     string
+	ID         uint          `json:"id"`
+	Version    string        `json:"jsonrpc"`
+	Result     *bundleResult `json:"result"`
+	Raw        string
+	StatusCode int
 }
 
 type CallBundleResponse struct {
-	ID      uint         `json:"id"`
-	Version string       `json:"jsonrpc"`
-	Result  *callResult  `json:"result"`
-	Error   *errorResult `json:"error"`
-	Raw     string
+	ID         uint         `json:"id"`
+	Version    string       `json:"jsonrpc"`
+	Result     *callResult  `json:"result"`
+	Error      *errorResult `json:"error"`
+	Raw        string
+	StatusCode int
 }
 
-type ErrorResponse struct {
-	Result map[string]string `json:"error"`
+type UserStatsResponse struct {
+	ID         uint       `json:"id"`
+	Version    string     `json:"jsonrpc"`
+	Result     *userStats `json:"result"`
+	Raw        string
+	StatusCode int
 }
 
 type errorResult struct {
@@ -108,6 +114,16 @@ type callResult struct {
 	TotalGasUsed      uint64     `json:"totalGasUsed"`
 }
 
+type userStats struct {
+	IsHighPriority       bool   `json:"is_high_priority"`
+	AllTimeMinerPayments string `json:"all_time_miner_payments"`
+	AllTimeGasSimulated  string `json:"all_time_gas_simulated"`
+	Last7dMinerPayments  string `json:"last_7d_miner_payments"`
+	Last7dGasSimulated   string `json:"last_7d_gas_simulated"`
+	Last1dMinerPayments  string `json:"last_1d_miner_payments"`
+	Last1dGasSimulated   string `json:"last_1d_gas_simulated"`
+}
+
 func NewProvider(signingKey *ecdsa.PrivateKey, walletKey *ecdsa.PrivateKey, relayURL string) *Provider {
 	if relayURL == "" {
 		relayURL = DefaultRelayURL
@@ -136,14 +152,31 @@ func (provider *Provider) SendBundle(transactions []string, blockNumber *big.Int
 		params.RevertingTxHashes = opts.RevertingTxHashes
 	}
 
-	res, err := provider.sendRequest(provider.RelayURL, MethodSendBundle, []interface{}{params})
+	httpResp, err := provider.sendRequest(provider.RelayURL, MethodSendBundle, []interface{}{params})
 	if err != nil {
 		return nil, err
 	}
 
-	response := SendBundleResponse{Raw: string(res)}
-	err = json.Unmarshal(res, &response)
+	body, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
+		return nil, err
+	}
+
+	if httpResp.StatusCode != 200 {
+		fmt.Printf("Received %d response code\n", httpResp.StatusCode)
+	}
+
+	response := SendBundleResponse{
+		Raw:        string(body),
+		StatusCode: httpResp.StatusCode,
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		// Added to debug when relay returns something unexpected. Probably a cloudflare response
+		fmt.Println("Unexpected response body")
+		fmt.Println("===============================================")
+		fmt.Println(string(body))
+		fmt.Println("===============================================")
 		return nil, err
 	}
 
@@ -162,14 +195,64 @@ func (provider *Provider) CallBundle(transactions []string, blockNumber *big.Int
 		params.Timestamp = minTimestamp
 	}
 
-	res, err := provider.sendRequest(provider.RelayURL, MethodCallBundle, []interface{}{params})
+	httpResp, err := provider.sendRequest(provider.RelayURL, MethodCallBundle, []interface{}{params})
 	if err != nil {
 		return nil, err
 	}
 
-	response := CallBundleResponse{Raw: string(res)}
-	err = json.Unmarshal(res, &response)
+	body, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
+		return nil, err
+	}
+
+	if httpResp.StatusCode != 200 {
+		fmt.Printf("Received %d response code\n", httpResp.StatusCode)
+	}
+
+	response := CallBundleResponse{
+		Raw:        string(body),
+		StatusCode: httpResp.StatusCode,
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		// Added to debug when relay returns something unexpected. Probably a cloudflare response
+		fmt.Println("Unexpected response body")
+		fmt.Println("===============================================")
+		fmt.Println(string(body))
+		fmt.Println("===============================================")
+		return nil, err
+	}
+
+	return &response, nil
+}
+
+func (provider *Provider) GetStats(blockNumber *big.Int) (*UserStatsResponse, error) {
+
+	httpResp, err := provider.sendRequest(provider.RelayURL, MethodUserStats, []interface{}{fmt.Sprintf("0x%x", blockNumber.Uint64())})
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := ioutil.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if httpResp.StatusCode != 200 {
+		fmt.Printf("Received %d response code\n", httpResp.StatusCode)
+	}
+
+	response := UserStatsResponse{
+		Raw:        string(body),
+		StatusCode: httpResp.StatusCode,
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		// Added to debug when relay returns something unexpected. Probably a cloudflare response
+		fmt.Println("Unexpected response body")
+		fmt.Println("===============================================")
+		fmt.Println(string(body))
+		fmt.Println("===============================================")
 		return nil, err
 	}
 
@@ -211,7 +294,7 @@ func (r *CallBundleResponse) EffectiveGasPrice() (*big.Int, error) {
 	return wei, nil
 }
 
-func (provider *Provider) sendRequest(relay string, method string, params []interface{}) ([]byte, error) {
+func (provider *Provider) sendRequest(relay string, method string, params []interface{}) (*http.Response, error) {
 	mevHTTPClient := &http.Client{
 		Timeout: time.Second * 5,
 	}
@@ -240,12 +323,7 @@ func (provider *Provider) sendRequest(relay string, method string, params []inte
 	req.Header.Add("Accept", Json)
 	req.Header.Add(FlashbotXHeader, fbHeader)
 
-	resp, err := mevHTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	return ioutil.ReadAll(resp.Body)
+	return mevHTTPClient.Do(req)
 }
 
 func (provider *Provider) flashbotHeader(payload []byte) (string, error) {
@@ -261,4 +339,19 @@ func (provider *Provider) flashbotHeader(payload []byte) (string, error) {
 
 	return crypto.PubkeyToAddress(provider.SigningKey.PublicKey).Hex() +
 		":" + hexutil.Encode(signature), nil
+}
+
+func (s *UserStatsResponse) Print() {
+	isHighPri := "no"
+	if s.Result.IsHighPriority {
+		isHighPri = "yes"
+	}
+	fmt.Printf("Stats:\n")
+	fmt.Printf("  IsHighPriority: %s\n", isHighPri)
+	fmt.Printf("  AllTimeMinerPayments: %s\n", s.Result.AllTimeMinerPayments)
+	fmt.Printf("  AllTimeGasSimulated: %s\n", s.Result.AllTimeGasSimulated)
+	fmt.Printf("  Last7dMinerPayments: %s\n", s.Result.Last7dMinerPayments)
+	fmt.Printf("  Last7dGasSimulated: %s\n", s.Result.Last7dGasSimulated)
+	fmt.Printf("  Last1dMinerPayments: %s\n", s.Result.Last1dMinerPayments)
+	fmt.Printf("  Last1dGasSimulated: %s\n", s.Result.Last1dGasSimulated)
 }
