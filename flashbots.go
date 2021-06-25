@@ -162,21 +162,12 @@ func (provider *Provider) SendBundle(transactions []string, blockNumber *big.Int
 		return nil, err
 	}
 
-	if httpResp.StatusCode != 200 {
-		fmt.Printf("Received %d response code\n", httpResp.StatusCode)
-	}
-
 	response := SendBundleResponse{
 		Raw:        string(body),
 		StatusCode: httpResp.StatusCode,
 	}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		// Added to debug when relay returns something unexpected. Probably a cloudflare response
-		fmt.Println("Unexpected response body")
-		fmt.Println("===============================================")
-		fmt.Println(string(body))
-		fmt.Println("===============================================")
 		return nil, err
 	}
 
@@ -205,21 +196,12 @@ func (provider *Provider) CallBundle(transactions []string, blockNumber *big.Int
 		return nil, err
 	}
 
-	if httpResp.StatusCode != 200 {
-		fmt.Printf("Received %d response code\n", httpResp.StatusCode)
-	}
-
 	response := CallBundleResponse{
 		Raw:        string(body),
 		StatusCode: httpResp.StatusCode,
 	}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		// Added to debug when relay returns something unexpected. Probably a cloudflare response
-		fmt.Println("Unexpected response body")
-		fmt.Println("===============================================")
-		fmt.Println(string(body))
-		fmt.Println("===============================================")
 		return nil, err
 	}
 
@@ -238,21 +220,12 @@ func (provider *Provider) GetStats(blockNumber *big.Int) (*UserStatsResponse, er
 		return nil, err
 	}
 
-	if httpResp.StatusCode != 200 {
-		fmt.Printf("Received %d response code\n", httpResp.StatusCode)
-	}
-
 	response := UserStatsResponse{
 		Raw:        string(body),
 		StatusCode: httpResp.StatusCode,
 	}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		// Added to debug when relay returns something unexpected. Probably a cloudflare response
-		fmt.Println("Unexpected response body")
-		fmt.Println("===============================================")
-		fmt.Println(string(body))
-		fmt.Println("===============================================")
 		return nil, err
 	}
 
